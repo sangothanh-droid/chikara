@@ -1016,9 +1016,13 @@ function vOutils(){
     <label class="field">Objectif de séances par semaine<input id="sgoal" inputmode="numeric" data-bind="sgoal" value="${esc(st.goal ?? 3)}"></label>
     <div class="row between"><span>Bip de fin de repos</span><button data-act="sound">${st.sound ? 'Activé' : 'Coupé'}</button></div></div>`;
   h += `<div class="card"><h3>Sauvegarde</h3>
-    <div class="small muted">Exporte toutes tes données dans un fichier JSON, ou réimporte un fichier exporté (les séances et notes sont fusionnées, le programme est remplacé).</div>
-    <div class="row"><button data-act="export">Exporter</button><label class="field" style="flex:1">Importer un fichier<input type="file" id="importfile" accept="application/json,.json"></label></div>
-    <div id="exportBox"></div></div>`;
+    <div class="small muted">Pour passer tes données d'une version de l'appli à une autre : copie-les ici, puis colle-les dans l'autre version. Les séances et notes sont fusionnées, le programme est remplacé. Les images ne sont pas incluses.</div>
+    <span class="label">1 · Sortir mes données</span>
+    <div class="row"><button class="primary" data-act="copydata">Copier mes données</button><button data-act="export">Fichier</button></div>
+    <div id="exportBox"></div>
+    <span class="label">2 · Récupérer des données</span>
+    <textarea id="importtxt" placeholder="Colle ici les données copiées depuis l'autre version" style="min-height:90px;font-size:12px"></textarea>
+    <div class="row"><button class="primary" data-act="importtxt">Importer le texte collé</button><label class="field" style="flex:1">Ou un fichier<input type="file" id="importfile" accept="application/json,.json,text/plain"></label></div></div>`;
   return h;
 }
 function rmOut(e1){
@@ -1138,9 +1142,22 @@ const TPL = [
 ];
 
 /* ---------- backup ---------- */
-async function doExport(){
+function exportData(){
   const {current, ...rest} = S;
-  const data = JSON.stringify({app:'chikara', version:1, exportedAt:new Date().toISOString(), ...rest, settings:{...S.settings, bg:{...S.settings.bg, id:null, local:false, mode:'kanji'}}}, null, 2);
+  const hero = heroOf();
+  return JSON.stringify({app:'chikara', version:1, exportedAt:new Date().toISOString(), ...rest, settings:{...S.settings, bg:{...S.settings.bg, id:null, local:false, mode:'kanji'}, hero:{...hero, imgs:{}}}});
+}
+function showExportBox(data, msg){
+  document.getElementById('exportBox').innerHTML = `<div class="small muted">${msg}</div><textarea id="exporttxt" readonly style="min-height:120px;font-size:12px">${esc(data)}</textarea><button data-act="copyexport">Copier ce texte</button>`;
+  const t = document.getElementById('exporttxt'); t.focus(); t.select(); t.setSelectionRange?.(0, t.value.length);
+}
+async function copyData(){
+  const data = exportData();
+  try { await navigator.clipboard.writeText(data); toast('Données copiées · colle-les dans l’autre version'); return; } catch {}
+  showExportBox(data, 'La copie automatique est bloquée ici. Le texte est sélectionné : appuie longuement dessus puis choisis « Copier ».');
+}
+async function doExport(){
+  const data = exportData();
   const name = `chikara-${new Date().toISOString().slice(0,10)}.json`;
   if (downloadsApi){
     try { await downloadsApi.save({filename:name, data}); return; } catch (e) { if (e?.code !== 'unavailable') { toast('Export annulé'); return; } }
@@ -1156,11 +1173,12 @@ async function doExport(){
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); return;
     } catch {}
   }
-  document.getElementById('exportBox').innerHTML = `<div class="small muted">Le téléchargement n'est pas possible ici : copie ce texte et garde-le dans un fichier.</div><textarea id="exporttxt" readonly style="min-height:140px;font-size:12px">${esc(data)}</textarea><button data-act="copyexport">Copier</button>`;
+  showExportBox(data, 'Le fichier ne peut pas être créé ici : copie ce texte à la place.');
 }
-async function doImport(file){
+async function doImport(file){ try { importText(await file.text()); } catch { toast('Fichier illisible'); } }
+function importText(txt){
   try {
-    const j = JSON.parse(await file.text());
+    const j = JSON.parse(String(txt).trim());
     if (!j || !Array.isArray(j.sessions) || !j.program) throw new Error('format');
     const ids = new Set(S.sessions.map(s => s.id));
     j.sessions.forEach(s => { if (s && s.id && Array.isArray(s.exercises) && !ids.has(s.id)) S.sessions.push(s); });
@@ -1247,6 +1265,8 @@ document.addEventListener('click', e => {
     case 'bgfx': S.settings.bg = {...S.settings.bg, fx: v}; saveSettings(0); paintBg(); render(); break;
     case 'sound': S.settings.sound = !S.settings.sound; saveSettings(0); render(); break;
     case 'export': doExport(); break;
+    case 'copydata': copyData(); break;
+    case 'importtxt': { const t = document.getElementById('importtxt'); if (!t.value.trim()) { t.focus(); toast('Colle d’abord tes données'); break; } importText(t.value); break; }
     case 'copyexport': { const t = document.getElementById('exporttxt'); navigator.clipboard?.writeText(t.value).then(() => toast('Copié'), () => { t.select(); toast('Sélectionné : copie-le manuellement'); }); break; }
   }
 });
